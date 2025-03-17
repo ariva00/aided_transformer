@@ -64,6 +64,8 @@ class AidedMultiHeadAttention(torch.nn.Module):
         attn = self.dropout(attn)
 
         if attn_mask is not None:
+            if attn_mask.dim() == 3:
+                attn_mask = attn_mask.unsqueeze(1)
             attn = attn.masked_fill(attn_mask == 0, -1e9)
 
         attn = torch.nn.functional.softmax(attn, dim=-1)
@@ -91,8 +93,16 @@ class AidedAttentionLayer(torch.nn.Module):
             torch.nn.Linear(embed_dim*ff_mult, embed_dim)
         )
 
-    def forward(self, x, y, aid, attn_mask=None):
+    def forward(self, x, y, aid, attn_mask=None, x_mask=None, y_mask=None):
         # what about pre-norm?
+        if x_mask is not None:
+            if y_mask is None:
+                y_mask = x_mask
+            input_mask = (x_mask.long().unsqueeze(-1)).bmm(y_mask.long().unsqueeze(-1).transpose(-1,-2)).unsqueeze(1)
+            if attn_mask is None:
+                attn_mask = input_mask
+            else:
+                attn_mask = attn_mask & input_mask
         output1, attn = self.attn(self.to_q(x), self.to_k(y), self.to_v(y), aid, attn_mask=attn_mask)
         output1 = self.norm1(x + output1)
         output2 = self.feed_forward(output1)
@@ -104,9 +114,9 @@ class AidedTransformer(torch.nn.Module):
         super(AidedTransformer, self).__init__()
         self.layers = torch.nn.ModuleList([AidedAttentionLayer(embed_dim, num_heads, aid_depth, dropout, batch_first=batch_first, mixer=mixer) for _ in range(num_layers)])
 
-    def forward(self, x, y, aid, attn_mask=None):
+    def forward(self, x, y, aid, attn_mask=None, x_mask=None, y_mask=None):
         for layer in self.layers:
-            x, attn = layer(x, y, aid=aid, attn_mask=attn_mask)
+            x, attn = layer(x, y, aid=aid, attn_mask=attn_mask, x_mask=x_mask, y_mask=y_mask)
         return x
 
 if __name__ == "__main__":
