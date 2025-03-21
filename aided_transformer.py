@@ -98,7 +98,7 @@ class AidedAttentionLayer(torch.nn.Module):
         if x_mask is not None:
             if y_mask is None:
                 y_mask = x_mask
-            input_mask = (x_mask.long().unsqueeze(-1)).bmm(y_mask.long().unsqueeze(-1).transpose(-1,-2)).unsqueeze(1)
+            input_mask = (x_mask.float().unsqueeze(-1)).bmm(y_mask.float().unsqueeze(-1).transpose(-1,-2)).long().unsqueeze(1)
             if attn_mask is None:
                 attn_mask = input_mask
             else:
