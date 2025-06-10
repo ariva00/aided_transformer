@@ -114,10 +114,15 @@ class AidedTransformer(torch.nn.Module):
         super(AidedTransformer, self).__init__()
         self.layers = torch.nn.ModuleList([AidedAttentionLayer(embed_dim, num_heads, aid_depth, dropout, batch_first=batch_first, mixer=mixer) for _ in range(num_layers)])
 
-    def forward(self, x, y, aid, attn_mask=None, x_mask=None, y_mask=None):
+    def forward(self, x, y, aid, attn_mask=None, x_mask=None, y_mask=None, return_hiddens=False):
+        attn_hiddens = []
         for layer in self.layers:
             x, attn = layer(x, y, aid=aid, attn_mask=attn_mask, x_mask=x_mask, y_mask=y_mask)
-        return x
+            attn_hiddens.append(attn)
+        if return_hiddens:
+            return x, attn_hiddens
+        else:
+            return x
 
 if __name__ == "__main__":
     # Test the AidedTransformer module
