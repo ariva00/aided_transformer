@@ -44,11 +44,12 @@ class AidedMultiHeadAttention(torch.nn.Module):
         self.scale = self.head_dim ** -0.5
         self.aid_scale = torch.nn.Parameter(torch.Tensor([0.1]))
 
-    def forward(self, query:torch.Tensor, key:torch.Tensor, value:torch.Tensor, aid:torch.Tensor, attn_mask=None):
+    def forward(self, query:torch.Tensor, key:torch.Tensor, value:torch.Tensor, aid:torch.Tensor, attn_mask=None, attn_prev=None):
         if not self.batch_first:
             query, key, value = query.transpose(1, 0), key.transpose(1, 0), value.transpose(1, 0)
             aid = aid.transpose(1, 0)
             attn_mask = attn_mask.transpose(1, 0) if attn_mask is not None else None
+            attn_prev = attn_prev.transpose(1, 0) if attn_prev is not None else None
 
         aid = aid.unsqueeze(1).repeat_interleave(self.num_heads, dim=1)
 
@@ -68,15 +69,22 @@ class AidedMultiHeadAttention(torch.nn.Module):
                 attn_mask = attn_mask.unsqueeze(1)
             attn = attn.masked_fill(attn_mask == 0, -1e9)
 
-        attn = torch.nn.functional.softmax(attn, dim=-1)
+        pre_softmax_attn = attn
+        attn = attn.softmax(dim=-1)
+        attn = attn + attn_prev if attn_prev is not None else attn
         output = torch.matmul(attn, value)
         output = output.transpose(1, 2).reshape(output.size(0), output.size(2), self.embed_dim)
         output = self.linear_out(output)
 
         if not self.batch_first:
             output = output.transpose(1, 0)
+            pre_softmax_attn = pre_softmax_attn.transpose(1, 0)
             attn = attn.transpose(1, 0)
-        return output, attn
+        hiddens = {
+            "attn" : attn,
+            "pre_softmax_attn" : pre_softmax_attn
+        }
+        return output, hiddens
 
 class AidedAttentionLayer(torch.nn.Module):
     def __init__(self, embed_dim, num_heads, aid_depth, dropout:float=0.0, attn_bias:bool=True, mixer_bias:bool=True, batch_first:bool=False, ff_mult:int=4, mixer=None):
@@ -93,7 +101,7 @@ class AidedAttentionLayer(torch.nn.Module):
             torch.nn.Linear(embed_dim*ff_mult, embed_dim)
         )
 
-    def forward(self, x, y, aid, attn_mask=None, x_mask=None, y_mask=None):
+    def forward(self, x, y, aid, attn_mask=None, x_mask=None, y_mask=None, attn_prev=None):
         # what about pre-norm?
         if x_mask is not None:
             if y_mask is None:
@@ -103,22 +111,27 @@ class AidedAttentionLayer(torch.nn.Module):
                 attn_mask = input_mask
             else:
                 attn_mask = attn_mask & input_mask
-        output1, attn = self.attn(self.to_q(x), self.to_k(y), self.to_v(y), aid, attn_mask=attn_mask)
+        output1, hiddens = self.attn(self.to_q(x), self.to_k(y), self.to_v(y), aid, attn_mask=attn_mask, attn_prev=attn_prev)
         output1 = self.norm1(x + output1)
         output2 = self.feed_forward(output1)
         output2 = self.norm2(output1 + output2)
-        return output2, attn
+        return output2, hiddens
 
 class AidedTransformer(torch.nn.Module):
-    def __init__(self, embed_dim, num_heads, num_layers, aid_depth, dropout=0.0, batch_first=False, mixer=None):
+    def __init__(self, embed_dim, num_heads, num_layers, aid_depth, dropout=0.0, batch_first=False, mixer=None, residual=False):
         super(AidedTransformer, self).__init__()
         self.layers = torch.nn.ModuleList([AidedAttentionLayer(embed_dim, num_heads, aid_depth, dropout, batch_first=batch_first, mixer=mixer) for _ in range(num_layers)])
+        self.residual=residual
 
     def forward(self, x, y, aid, attn_mask=None, x_mask=None, y_mask=None, return_hiddens=False):
         attn_hiddens = []
         for layer in self.layers:
-            x, attn = layer(x, y, aid=aid, attn_mask=attn_mask, x_mask=x_mask, y_mask=y_mask)
-            attn_hiddens.append(attn)
+            if self.residual and len(attn_hiddens) > 0:
+                attn_prev = attn_hiddens[-1]['attn']
+            else:
+                attn_prev = None
+            x, hiddens = layer(x, y, aid=aid, attn_mask=attn_mask, x_mask=x_mask, y_mask=y_mask, attn_prev=attn_prev)
+            attn_hiddens.append(hiddens)
         if return_hiddens:
             return x, attn_hiddens
         else:
