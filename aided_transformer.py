@@ -67,7 +67,7 @@ class AidedMultiHeadAttention(torch.nn.Module):
         if attn_mask is not None:
             if attn_mask.dim() == 3:
                 attn_mask = attn_mask.unsqueeze(1)
-            attn = attn.masked_fill(attn_mask == 0, -1e9)
+            attn = attn.masked_fill(attn_mask == 0, -1e9) #TODO: reconsider this, currently we are masking by putting a constant, this might not be the best choice
 
         pre_softmax_attn = attn
         attn = attn.softmax(dim=-1)
@@ -81,6 +81,9 @@ class AidedMultiHeadAttention(torch.nn.Module):
             pre_softmax_attn = pre_softmax_attn.transpose(1, 0)
             attn = attn.transpose(1, 0)
         hiddens = {
+            "q" : query,
+            "k" : key,
+            "v" : value,
             "attn" : attn,
             "pre_softmax_attn" : pre_softmax_attn
         }
