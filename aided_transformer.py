@@ -26,14 +26,14 @@ class HeadWiseLinear(torch.nn.Module):
         return x
 
 class AidedMultiHeadAttention(torch.nn.Module):
-    def __init__(self, embed_dim, num_heads:int, aid_depth, dropout:float=0.0, bias:bool=True, mixer_bias:bool=True, batch_first:bool=False, mixer=None):
+    def __init__(self, embed_dim, num_heads:int, aid_depth=0, dropout:float=0.0, bias:bool=True, mixer_bias:bool=True, batch_first:bool=False, mixer=None):
         super(AidedMultiHeadAttention, self).__init__()
         self.batch_first = batch_first
         self.embed_dim = embed_dim
         self.num_heads = num_heads
         self.head_dim = embed_dim // num_heads
         self.dropout = torch.nn.Dropout(dropout)
-        if mixer is None:
+        if mixer is None and aid_depth > 0:
             self.mixer = torch.nn.Sequential(
                 HeadWiseLinear(aid_depth + 1, 1, self.num_heads, bias=mixer_bias),
                 torch.nn.ReLU()
@@ -44,14 +44,14 @@ class AidedMultiHeadAttention(torch.nn.Module):
         self.scale = self.head_dim ** -0.5
         self.aid_scale = torch.nn.Parameter(torch.Tensor([0.1]))
 
-    def forward(self, query:torch.Tensor, key:torch.Tensor, value:torch.Tensor, aid:torch.Tensor, attn_mask=None, attn_prev=None):
+    def forward(self, query:torch.Tensor, key:torch.Tensor, value:torch.Tensor, aid:torch.Tensor=None, attn_mask=None, attn_prev=None):
         if not self.batch_first:
             query, key, value = query.transpose(1, 0), key.transpose(1, 0), value.transpose(1, 0)
-            aid = aid.transpose(1, 0)
+            aid = aid.transpose(1, 0) if aid is not None else None
             attn_mask = attn_mask.transpose(1, 0) if attn_mask is not None else None
             attn_prev = attn_prev.transpose(1, 0) if attn_prev is not None else None
 
-        aid = aid.unsqueeze(1).repeat_interleave(self.num_heads, dim=1)
+        aid = aid.unsqueeze(1).repeat_interleave(self.num_heads, dim=1) if aid is not None else None
 
         query = query.reshape(query.size(0), self.num_heads, query.size(1), self.head_dim)
         key = key.reshape(key.size(0), self.num_heads, key.size(1), self.head_dim)
@@ -60,7 +60,8 @@ class AidedMultiHeadAttention(torch.nn.Module):
         attn = torch.matmul(query, key.transpose(2, 3))
 
         attn = attn * self.scale
-        attn = attn + self.mixer(torch.cat([attn.unsqueeze(-1), aid], dim=-1)).squeeze(-1) * self.aid_scale
+        if aid is not None:
+            attn = attn + self.mixer(torch.cat([attn.unsqueeze(-1), aid], dim=-1)).squeeze(-1) * self.aid_scale
 
         attn = self.dropout(attn)
 
