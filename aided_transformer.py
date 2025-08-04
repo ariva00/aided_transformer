@@ -135,6 +135,7 @@ class AidedTransformer(torch.nn.Module):
             else:
                 attn_prev = None
             x, hiddens = layer(x, y, aid=aid, attn_mask=attn_mask, x_mask=x_mask, y_mask=y_mask, attn_prev=attn_prev)
+            hiddens['out'] = x
             attn_hiddens.append(hiddens)
         if return_hiddens:
             return x, attn_hiddens
