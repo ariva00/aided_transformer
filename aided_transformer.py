@@ -53,9 +53,9 @@ class AidedMultiHeadAttention(torch.nn.Module):
 
         aid = aid.unsqueeze(1).repeat_interleave(self.num_heads, dim=1) if aid is not None else None
 
-        query = query.reshape(query.size(0), self.num_heads, query.size(1), self.head_dim)
-        key = key.reshape(key.size(0), self.num_heads, key.size(1), self.head_dim)
-        value = value.reshape(value.size(0), self.num_heads, value.size(1), self.head_dim)
+        query = query.reshape(query.size(0), query.size(1), self.num_heads, self.head_dim).transpose(1,2)
+        key = key.reshape(key.size(0), key.size(1), self.num_heads, self.head_dim).transpose(1,2)
+        value = value.reshape(value.size(0), value.size(1), self.num_heads, self.head_dim).transpose(1,2)
 
         attn = torch.matmul(query, key.transpose(2, 3))
 
