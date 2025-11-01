@@ -122,9 +122,9 @@ class AidedAttentionLayer(torch.nn.Module):
         return output2, hiddens
 
 class AidedTransformer(torch.nn.Module):
-    def __init__(self, embed_dim, num_heads, num_layers, aid_depth, dropout=0.0, batch_first=False, mixer=None, residual=False):
+    def __init__(self, embed_dim, num_heads, num_layers, aid_depth, dropout=0.0, batch_first=False, mixer=None, mixer_factory=None, residual=False):
         super(AidedTransformer, self).__init__()
-        self.layers = torch.nn.ModuleList([AidedAttentionLayer(embed_dim, num_heads, aid_depth, dropout, batch_first=batch_first, mixer=mixer) for _ in range(num_layers)])
+        self.layers = torch.nn.ModuleList([AidedAttentionLayer(embed_dim, num_heads, aid_depth, dropout, batch_first=batch_first, mixer=mixer if mixer is not None else mixer_factory() if mixer_factory is not None else None) for _ in range(num_layers)])
         self.residual=residual
 
     def forward(self, x, y, aid, attn_mask=None, x_mask=None, y_mask=None, return_hiddens=False):
